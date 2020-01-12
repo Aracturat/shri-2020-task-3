@@ -50,9 +50,7 @@ const createLanguageClient = (context: vscode.ExtensionContext): LanguageClient 
 const getPreviewKey = (doc: vscode.TextDocument): string => doc.uri.path;
 
 const getMediaPath = (context: vscode.ExtensionContext) => vscode.Uri
-    .file(context.extensionPath)
-    .with({ scheme: "resource"})
-    .toString() + '/';
+    .file(context.asAbsolutePath("/"));
 
 const initPreviewPanel = (document: vscode.TextDocument) => {
     const key = getPreviewKey(document);
@@ -87,14 +85,17 @@ const updateContent = (doc: vscode.TextDocument, context: vscode.ExtensionContex
             const data = JSON.parse(json);
             const html = template.apply(data);
 
+            const mediaPath = panel.webview.asWebviewUri(getMediaPath(context)).toString();
 
             panel.webview.html = previewHtml 
-                .replace(/{{\s+(\w+)\s+}}/g, (str, key) => {
+                .replace(/{{\s*(\w+)\s*}}/g, (str, key) => {
                     switch (key) {
+                        case 'cspSource':
+                            return panel.webview.cspSource;
                         case 'content':
                             return html;
                         case 'mediaPath':
-                            return getMediaPath(context);
+                            return mediaPath;
                         default:
                             return str;
                     }

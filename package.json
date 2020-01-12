@@ -55,6 +55,7 @@
 				"command": "example.showPreviewToSide",
 				"title": "Show preview",
 				"category": "Example",
+				"enablement": "editorLangId == json",
 				"icon": {
 					"light": "./media/PreviewIcon16x.svg",
 					"dark": "./media/PreviewIcon16x_dark.svg"

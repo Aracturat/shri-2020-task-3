@@ -69,11 +69,11 @@ export interface AstIdentifier {
 
 ## 2. Ошибки линтера
 
-Запускаем расширение - ничего не работает при открытии json файла. Идем в настройки, включаем линтер - все еще не работает.
+Запускаем дебаг расширения - ничего не работает при открытии json файла. Идем в настройки, включаем линтер - все еще не работает.
 
 ### Включаем линтер по умолчанию
 
-В принципе, это не ошибка, но для удобства дебага влючаем линтер сразу после запуска расширения.
+В принципе, это не ошибка, но для удобства дебага влючаем линтер сразу после запуска дебага расширения.
 
 Идем в package.json, находим данную настройку:
 
@@ -131,7 +131,7 @@ const json = textDocument.getText();
 
 ### Правим линтер 2
 
-Перезапускаем расширение, ошибки в консоли пропали, но все еще не отображаются во вкладке `Problems`. Продолжаем искать проблему. После долгих поисков, находим следующий подозрительный кусок кода:
+Перезапускаем дебаг расширения, ошибки в консоли пропали, но все еще не отображаются во вкладке `Problems`. Продолжаем искать проблему. После долгих поисков, находим следующий подозрительный кусок кода:
 
 ```ts
 const errors: LinterProblem<TProblemKey>[] = [];
@@ -159,7 +159,7 @@ if (ast) {
 
 
 ### Правим линтер 3
-Перезапускаем, линтер начинает успешно показывать ошибки (правда не всегда верно, к примеру есть много ошибок, что нужно поле `block` в объектах `mods` и `elemMods`). 
+Перезапускаем дебаг, линтер начинает успешно показывать ошибки (правда не всегда верно, к примеру есть много ошибок, что нужно поле `block` в объектах `mods` и `elemMods`). 
 
 Идем в настройки, пытаемся менять для каждого правила `Severity`.
 
@@ -205,3 +205,149 @@ conn.sendDiagnostics({ uri: textDocument.uri, diagnostics });
 
 Так как будем подключать свой линтер, то не правим текущую реализацию правил. Считаем, что все ошибки, мешающие работе линтера, исправлены.
 
+
+## 3. Ошибки превью
+
+### Ошибка regexp
+
+Открываем превью, вместо него наблюдаем `{{content}}`. Ищем по слову `content` в коде, обнаруживаем файл `preview\index.html` и код, который по всей видимости должен подключать наш html:
+
+```ts
+panel.webview.html = previewHtml 
+                .replace(/{{\s+(\w+)\s+}}/g, (str, key) => {
+                    switch (key) {
+                        case 'content':
+                            return html;
+                        case 'mediaPath':
+                            return getMediaPath(context);
+                        default:
+                            return str;
+                    }
+                });
+```
+
+Решаем, что хочется, чтобы код одинаково обрабатывал случаи `{{content}}` и `{{ content }}`, поэтому меняем regexp на:
+
+```ts
+panel.webview.html = previewHtml 
+                .replace(/{{\s*(\w+)\s*}}/g, (str, key) => {
+```
+
+### Ошибка стилей
+
+Перезапускаем дебаг, `{{content}}` пропадает, остается пустое поле. Пытаемся посмотреть, через `VS Code Developer Tools` что внутри, но это не дает дополнительной информации.
+
+Возникает предположение, что проблема в стилях. Открываем файл `preview\style.css`. Видим следующее:
+
+```css
+.div {
+    ...
+}
+
+.div::before {
+    ...
+}
+```
+
+Вместо селекторов по тегам, используется селектор по именам классов, правим код на следующий:
+
+```css
+div {
+    ...
+}
+
+div::before {
+    ...
+}
+```
+
+### Ошибка подключения стилей
+
+Перезапускаем дебаг расширения - все равно ничего не появляется. Появляется предположение, что проблема в подключении стилей. 
+Вставляем стили напрямую в `index.html` в тег `style`. 
+
+Перезапускаем дебаг расширения, пытаемся посмотреть превью, и обнаруживаем, что все заработало.
+
+### Ошибка CSP
+
+Копаем дальше, в чем проблема.
+
+Обнаруживаем в `Output > Log (Extension Host)` следующую ошибку:
+
+```
+[2020-01-12 19:33:09.479] [exthost] [warning] undefined_publisher.shri-ext created a webview without a content security policy: https://aka.ms/vscode-webview-missing-csp
+```
+
+Идем по ссылке, и обнаруживаем, что для подключения своих стилей \ скриптов надо вставить в html следующую строку.
+
+```html
+<meta
+  http-equiv="Content-Security-Policy"
+  content="default-src 'none'; script-src ${webview.cspSource}; style-src ${webview.cspSource};"
+/>
+```
+
+Подключаем ее, но это не помогает (но ошибка из консоли исчезает).
+
+### Ошибка подключения стилей 2
+
+Продолжаем попытки поключить наши стили. Находим официальный пример расширения с webview https://github.com/microsoft/vscode-extension-samples/blob/master/webview-sample/src/extension.ts#L164 . Понимаем, что для пути нужно использовать функцию `webview.asWebviewUri`.
+
+Меняем функцию для отрисовки `webview`:
+
+```ts
+const mediaPath = panel.webview.asWebviewUri(getMediaPath(context)).toString();
+
+panel.webview.html = previewHtml 
+    .replace(/{{\s*(\w+)\s*}}/g, (str, key) => {
+        switch (key) {
+            case 'cspSource':
+                return panel.webview.cspSource;
+            case 'content':
+                return html;
+            case 'mediaPath':
+                return mediaPath;
+            default:
+                return str;
+        }
+    });
+```
+
+и меняем фунцию `getMediaPath` на:
+
+```ts
+const getMediaPath = (context: vscode.ExtensionContext) => vscode.Uri
+    .file(context.asAbsolutePath("/"));
+```
+
+Перезапускаем дебаг расширения, в результате все работает.
+
+### Добавляем возможность подключения скриптов
+
+Добавляем на будущее возможно подключения `script.js` в `index.html`:
+
+```html
+<body>
+    {{content}}
+    <script src="./preview/script.js"></script>
+</body>
+```
+
+### Запрещаем команду не в json файлах
+
+Замечаем, что команда Example: Show preview из палитры команд запускается на любых файлах (не только json). Меняем настройки, чтобы ограничиться json:
+
+```json
+"commands": [
+    {
+        "command": "example.showPreviewToSide",
+        "title": "Show preview",
+        "category": "Example",
+        "enablement": "editorLangId == json",
+        "icon": {
+            "light": "./media/PreviewIcon16x.svg",
+            "dark": "./media/PreviewIcon16x_dark.svg"
+        }
+    }
+],
+```
