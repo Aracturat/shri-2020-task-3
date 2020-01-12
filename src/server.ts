@@ -6,7 +6,8 @@ import {
     TextDocument,
     Diagnostic,
     DiagnosticSeverity,
-    DidChangeConfigurationParams
+    DidChangeConfigurationParams,
+    TextDocumentSyncKind
 } from 'vscode-languageserver';
 
 import { basename } from 'path';
@@ -23,7 +24,7 @@ let conf: ExampleConfiguration | undefined = undefined;
 conn.onInitialize((params: InitializeParams) => {
     return {
         capabilities: {
-            textDocumentSync: 'always'
+            textDocumentSync: TextDocumentSyncKind.Full
         }
     };
 });
