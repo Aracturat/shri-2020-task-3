@@ -54,3 +54,4 @@ function updatePackageJsonConfig() {
 }
 
 updatePackageJsonConfig();
+console.log("configuration section was updated!");
